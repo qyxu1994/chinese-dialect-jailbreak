@@ -1,0 +1,38 @@
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editor, assistant, and OS metadata
+.idea/
+.claude/
+.DS_Store
+AGENTS.md
+CLAUDE.md
+
+# Sensitive datasets and evaluation records
+*.csv
+*.jsonl
+results/
+cache/
+analysis/coding_irr/
+analysis/irr/
+
+# Generated logs and temporary output
+*.log
+logs/
+output/
+tmp/
+
+# Paper and internal research artifacts
+paper/
+examples/
+images/
+implement-plan/
+progress-summary/
+research-progress/
+research-summary/

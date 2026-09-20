@@ -1,0 +1,154 @@
+# Declarative spec for the experiment matrix. scripts/run_ablation_matrix.sh
+# (Phase B) iterates this and dispatches one `python gen.py ...` per cell.
+#
+# Each cell is the cross product of:
+#   dialects × ablation_conditions × targets × judges × tau × benchmarks
+# unless an `exclude` rule prunes specific combinations.
+
+# ---- Defaults applied to every cell unless overridden in a cell block ----
+defaults:
+  population_size: 5
+  max_iter: 5
+  data_format: csv
+  cache_dir: ../cache
+  output_dir: ../results/private_raw
+  public_dir: ../results/public
+  resume: true
+
+# ---- Run blocks ----
+runs:
+
+  # Phase B smoke: 1 dialect × 1 target × all 6 conditions × tau=80 against the
+  # 5-prompt data/test.csv fixture. Used to catch gen.py edge cases at scale
+  # before launching the full 36-cell ablation matrix. `output_dir` is
+  # explicitly overridden to results/private_raw/smoke/ so smoke records can
+  # never share a filename with full-eval records (Evaluation policy #2).
+  - name: phase_b_smoke
+    overrides:
+      output_dir: ../results/private_raw/smoke
+    dialects: [classical_chinese]
+    targets: [gpt-4o]
+    ablation_conditions:
+      - english_original
+      - mandarin_translation
+      - naive_dialect_translation
+      - dialect_without_cultural_frame
+      - mandarin_with_cultural_frame
+      - full_dialect_cultural_frame
+    judges: [[gpt-4o]]
+    tau: [80]
+    benchmarks:
+      - {name: advbench_smoke, input_file: ../data/test.csv}
+
+  # Phase A smoke: existing main results layout, single condition, current targets.
+  - name: phase_a_main
+    dialects: [classical_chinese, shanghainese, cantonese]
+    targets: [gpt-4o, deepseek-reasoner]
+    ablation_conditions: [full_dialect_cultural_frame]
+    judges: [[gpt-4o]]
+    tau: [80]
+    benchmarks:
+      - {name: advbench, input_file: ../data/advbench_50.csv}
+
+  # Phase B.3 — ablation matrix: 6 conditions × 3 dialects × 2 targets at tau=80.
+  - name: phase_b_ablation
+    dialects: [classical_chinese, shanghainese, cantonese]
+    targets: [gpt-4o, deepseek-reasoner]
+    ablation_conditions:
+      - english_original
+      - mandarin_translation
+      - naive_dialect_translation
+      - dialect_without_cultural_frame
+      - mandarin_with_cultural_frame
+      - full_dialect_cultural_frame
+    judges: [[gpt-4o]]
+    tau: [80]
+    benchmarks:
+      - {name: advbench, input_file: ../data/advbench_50.csv}
+
+  # Phase B.3 — tau=120 reruns of main results only (no ablation conditions).
+  # output_dir is overridden so tau=120 records don't collide with the existing
+  # tau=80 full_dialect_cultural_frame record files (gen.py base filename does
+  # not encode tau, so a shared output_dir would cause resume to skip all rows).
+  - name: phase_b_tau120
+    overrides:
+      output_dir: ../results/private_raw/tau120
+    dialects: [classical_chinese, shanghainese, cantonese]
+    targets: [gpt-4o, deepseek-reasoner]
+    ablation_conditions: [full_dialect_cultural_frame]
+    judges: [[gpt-4o]]
+    tau: [120]
+    benchmarks:
+      - {name: advbench, input_file: ../data/advbench_50.csv}
+
+  # Phase C.3 — cross-model generalization: full method only, new targets.
+  - name: phase_c_new_targets
+    dialects: [classical_chinese, shanghainese, cantonese]
+    targets: [claude-sonnet-4-6, qwen-max, deepseek-chat]
+    ablation_conditions: [full_dialect_cultural_frame]
+    judges: [[gpt-4o, claude-sonnet-4-6]]
+    tau: [80]
+    benchmarks:
+      - {name: advbench, input_file: ../data/advbench_50.csv}
+
+  # Phase C.3 — cross-benchmark generalization (sampled to 30 rows each).
+  - name: phase_c_new_benchmarks
+    dialects: [classical_chinese, shanghainese, cantonese]
+    targets: [gpt-4o, claude-sonnet-4-6]
+    ablation_conditions: [full_dialect_cultural_frame]
+    judges: [[gpt-4o, claude-sonnet-4-6]]
+    tau: [80]
+    benchmarks:
+      - {name: strongreject, input_file: ../data/strongreject_small.csv}
+      - {name: clas, input_file: ../data/clas.csv}
+
+  # Phase B generic controls: FOA with culture-neutral strategy space.
+  # 3 conditions × 2 targets × 50 prompts = 300 rows.
+  # Uses --dialect generic so JSONL rows are self-identifying.
+  - name: phase_b_generic_controls
+    dialects: [generic]
+    targets: [gpt-4o, deepseek-reasoner]
+    ablation_conditions:
+      - foa_generic_english
+      - foa_generic_mandarin
+      - foa_generic_chinese_register
+    judges: [[gpt-4o]]
+    tau: [80]
+    benchmarks:
+      - {name: advbench, input_file: ../data/advbench_50.csv}
+
+  # Phase D optimizer baselines: compare FOA against non-adaptive alternatives.
+  # 3 optimizers × 2 targets × 50 prompts = 300 rows on classical_chinese only.
+  # FOA on the same cells is already in phase_b_ablation (full_dialect_cultural_frame).
+  - name: phase_d_optimizer_baselines
+    dialects: [classical_chinese]
+    targets: [gpt-4o, deepseek-reasoner]
+    ablation_conditions: [full_dialect_cultural_frame]
+    judges: [[gpt-4o]]
+    tau: [80]
+    optimizers: [random_one, best_of_k, greedy_coord]
+    benchmarks:
+      - {name: advbench, input_file: ../data/advbench_50.csv}
+
+  # R1 (EMNLP revision): budget-matched non-FOA baseline.
+  # best_of_k samples k = population_size * max_iter = 25 random strategy vectors
+  # (matching FOA's worst-case query budget) and returns the best. Removes adaptive
+  # search while keeping the same query budget. Covers all 3 dialects × 2 targets
+  # × full_dialect_cultural_frame × advbench.
+  # NOTE: classical_chinese × best_of_k cells overlap with phase_d_optimizer_baselines.
+  # For R1 only run phase_e (canonical, isolated output_dir). Do not also run phase_d
+  # unless you specifically want the random_one / greedy_coord comparison.
+  - name: phase_e_matched_budget_baselines
+    overrides:
+      output_dir: ../results/private_raw/matched_budget
+    dialects: [classical_chinese, shanghainese, cantonese]
+    targets: [gpt-4o, deepseek-reasoner]
+    ablation_conditions: [full_dialect_cultural_frame]
+    judges: [[gpt-4o]]
+    tau: [80]
+    optimizers: [best_of_k]
+    benchmarks:
+      - {name: advbench, input_file: ../data/advbench_50.csv}
+
+# ---- Pairs to exclude across all runs (e.g., known-failing combinations) ----
+exclude: []
